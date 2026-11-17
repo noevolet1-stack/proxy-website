@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Krillion Portal</title>
+  <script src="/baremux/index.js"></script>
+  <script src="/scramjet/scramjet.all.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #0f172a; }
+    .toolbar { display: flex; gap: 8px; padding: 10px; background: #1e293b; border-bottom: 1px solid #334155; }
+    button { padding: 8px 14px; border-radius: 6px; border: none; background: #334155; color: #f8fafc; font-weight: 600; cursor: pointer; }
+    button:hover { background: #475569; }
+    .launch-btn { background: #10b981; color: #022c22; }
+    .launch-btn:hover { background: #34d399; }
+    input { flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 14px; }
+    #status { padding: 14px; text-align: center; color: #94a3b8; font-size: 14px; }
+    iframe { flex: 1; width: 100%; border: none; background: #000; display: none; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="backBtn">←</button>
+    <button id="fwdBtn">→</button>
+    <input id="urlInput" type="text" value="https://krillion.io" />
+    <button class="launch-btn" id="goBtn">Go</button>
+  </div>
+  <div id="status">Initializing engine...</div>
+  <iframe id="viewport"></iframe>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const viewport = document.getElementById('viewport');
+    const urlInput = document.getElementById('urlInput');
+    let scramjet = null;
+
+    async function boot() {
+      try {
+        const { ScramjetController } = window.$scramjetLoadController();
+        scramjet = new ScramjetController({
+          files: {
+            wasm: '/scramjet/scramjet.wasm.wasm',
+            all: '/scramjet/scramjet.all.js',
+            sync: '/scramjet/scramjet.sync.js'
+          }
+        });
+        await scramjet.init();
+
+        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        await reg.update();
+        await navigator.serviceWorker.ready;
+
+        const { BareMuxConnection } = window.BareMux;
+        const connection = new BareMuxConnection('/baremux/worker.js');
+        await connection.setTransport('/epoxy/index.mjs', [
+          { wisp: `wss://${window.location.host}/wisp/` }
+        ]);
+
+        await new Promise((r) => setTimeout(r, 400));
+        openUrl(urlInput.value);
+      } catch (err) {
+        statusEl.textContent = 'Startup error: ' + err.message;
+      }
+    }
+
+    function openUrl(raw) {
+      let target = raw.trim();
+      if (!target) return;
+      if (!target.startsWith('http://') && !target.startsWith('https://')) {
+        target = 'https://' + target;
+      }
+      urlInput.value = target;
+      statusEl.style.display = 'none';
+      viewport.style.display = 'block';
+      viewport.src = scramjet.encodeUrl(target);
+    }
+
+    document.getElementById('goBtn').addEventListener('click', () => openUrl(urlInput.value));
+    urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') openUrl(urlInput.value); });
+    document.getElementById('backBtn').addEventListener('click', () => viewport.contentWindow?.history.back());
+    document.getElementById('fwdBtn').addEventListener('click', () => viewport.contentWindow?.history.forward());
+
+    boot();
+  </script>
+</body>
+</html>
